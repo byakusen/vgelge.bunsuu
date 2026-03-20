@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>分数クイズ - Final Version Fixed</title>
+    <!-- Tailwind CSS (デザイン用) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- React & ReactDOM (プログラムの本体) -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+    
+    <!-- Babel (ブラウザでReactを動かすための翻訳機) -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Google Fonts (おしゃれなフォント) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;700;900&display=swap" rel="stylesheet">
+
+    <!-- アイコン用のスタイル -->
+    <style>
+        body {
+            font-family: 'M PLUS Rounded 1c', sans-serif;
+            touch-action: manipulation; /* スマホでの操作性を向上 */
+        }
+        /* 入力欄の矢印を消す設定 */
+        .no-spinners::-webkit-outer-spin-button,
+        .no-spinners::-webkit-inner-spin-button {
+          -webkit-appearance: none;
+          margin: 0;
+        }
+        .no-spinners {
+          -moz-appearance: textfield;
+        }
+        
+        /* アニメーション定義 */
+        @keyframes bounce-short {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-5px); }
+        }
+        .animate-bounce-short {
+          animation: bounce-short 0.5s ease-in-out 1;
+        }
+
+        /* 待機中のゆらゆら */
+        @keyframes float {
+            0%, 100% { transform: translateY(0) rotate(0deg); }
+            50% { transform: translateY(-5px) rotate(2deg); }
+        }
+        .animate-float {
+            animation: float 3s ease-in-out infinite;
+        }
+
+        /* 正解時の喜びジャンプ */
+        @keyframes jump-happy {
+            0%, 100% { transform: translateY(0) scale(1); }
+            25% { transform: translateY(-20px) scale(1.1); }
+            50% { transform: translateY(0) scale(0.95); }
+            75% { transform: translateY(-10px) scale(1.05); }
+        }
+        .animate-jump-happy {
+            animation: jump-happy 0.8s ease-in-out infinite;
+        }
+
+        /* 不正解時のプルプル */
+        @keyframes shake-sad {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px) rotate(-5deg); }
+            75% { transform: translateX(5px) rotate(5deg); }
+        }
+        .animate-shake-sad {
+            animation: shake-sad 0.5s ease-in-out infinite;
+        }
+
+        /* 瞬き */
+        @keyframes blink {
+            0%, 48%, 52%, 100% { transform: scaleY(1); }
+            50% { transform: scaleY(0.1); }
+        }
+        .animate-blink {
+            animation: blink 4s infinite;
+        }
+
+        /* 背景のアニメーション */
+        @keyframes gradient-xy {
+            0%, 100% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+        }
+        .animate-gradient {
+            background-size: 200% 200%;
+            animation: gradient-xy 15s ease infinite;
+        }
+
+        /* タイムアタック: ピンチ時の赤点滅 */
+        @keyframes pulse-red {
+            0%, 100% { background-color: rgba(254, 226, 226, 0.8); } /* red-100 */
+            50% { background-color: rgba(254, 202, 202, 0.9); } /* red-200 */
+        }
+        .animate-pulse-red {
+            animation: pulse-red 1s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 overflow-hidden">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // --- 効果音再生機能 ---
+        const playSound = (type) => {
+            try {
+                if (type === 'correct') {
+                    // 正解音
+                    const audio = new Audio('https://github.com/byakusen/gogelige.quiz/raw/refs/heads/main/quiz_seikai.mp3');
+                    audio.play();
+                } else if (type === 'incorrect') {
+                    // 不正解音
+                    const audio = new Audio('https://github.com/byakusen/gogelige.quiz/raw/refs/heads/main/quiz_huseikai.mp3');
+                    audio.play();
+                } else {
+                    const AudioContext = window.AudioContext || window.webkitAudioContext;
+                    if (!AudioContext) return;
+                    const ctx = new AudioContext();
+                    const t = ctx.currentTime;
+
+                    if (type === 'start') {
+                        // ピッ！ (スタート音)
+                        const osc = ctx.createOscillator();
+                        const gain = ctx.createGain();
+                        osc.connect(gain);
+                        gain.connect(ctx.destination);
+                        osc.type = 'square';
+                        osc.frequency.setValueAtTime(880, t);
+                        gain.gain.setValueAtTime(0.1, t);
+                        gain.gain.exponentialRampToValueAtTime(0.01, t + 0.1);
+                        osc.start(t);
+                        osc.stop(t + 0.1);
+
+                    } else if (type === 'finish') {
+                        // ジャーン (終了音)
+                        const osc = ctx.createOscillator();
+                        const gain = ctx.createGain();
+                        osc.connect(gain);
+                        gain.connect(ctx.destination);
+                        osc.type = 'triangle';
+                        osc.frequency.setValueAtTime(440, t);
+                        osc.frequency.exponentialRampToValueAtTime(110, t + 1.5);
+                        gain.gain.setValueAtTime(0.3, t);
+                        gain.gain.exponentialRampToValueAtTime(0.01, t + 1.5);
+                        osc.start(t);
+                        osc.stop(t + 1.5);
+                    }
+                }
+            } catch (e) {
+                console.error("Audio playback error:", e);
+            }
+        };
+
+        // --- マスコットキャラクター（ねこさん） ---
+        const Mascot = ({ state, mode }) => {
+            let animationClass = "animate-float"; 
+            if (state === 'correct') animationClass = "animate-jump-happy";
+            if (state === 'incorrect') animationClass = "animate-shake-sad";
+            if (state === 'timeup') animationClass = "animate-bounce-short";
+
+            const renderEyes = () => {
+                if (state === 'correct') {
+                    return (
+                        <g fill="none" stroke="#333" strokeWidth="2.5" strokeLinecap="round">
+                            <path d="M28 32 Q32 28 36 32" />
+                            <path d="M44 32 Q48 28 52 32" />
+                        </g>
+                    );
+                } else if (state === 'incorrect') {
+                    return (
+                        <g stroke="#333" strokeWidth="2.5" strokeLinecap="round">
+                            <path d="M28 28 L36 36" /><path d="M36 28 L28 36" />
+                            <path d="M44 28 L52 36" /><path d="M52 28 L44 36" />
+                        </g>
+                    );
+                } else if (state === 'timeup') {
+                     return (
+                        <g stroke="#333" strokeWidth="2.5" strokeLinecap="round">
+                            <circle cx="32" cy="32" r="3.5" fill="#333" />
+                            <circle cx="48" cy="32" r="3.5" fill="#333" />
+                        </g>
+                    );
+                } else {
+                    if (mode === 'timeAttack') {
+                         return (
+                            <g fill="#333" style={{ transformOrigin: "center" }}>
+                                <ellipse cx="32" cy="33" rx="3.5" ry="4.5" />
+                                <ellipse cx="48" cy="33" rx="3.5" ry="4.5" />
+                                <path d="M25 25 L35 28" stroke="#333" strokeWidth="1.5" />
+                                <path d="M55 25 L45 28" stroke="#333" strokeWidth="1.5" />
+                            </g>
+                        );
+                    }
+                    return (
+                        <g fill="#333" className="animate-blink" style={{ transformOrigin: "center" }}>
+                            <circle cx="32" cy="32" r="3.5" />
+                            <circle cx="48" cy="32" r="3.5" />
+                        </g>
+                    );
+                }
+            };
+
+            const renderMouth = () => {
+                if (state === 'correct') {
+                    return <path d="M34 42 Q40 48 46 42" fill="none" stroke="#333" strokeWidth="2.5" strokeLinecap="round" />;
+                } else if (state === 'incorrect') {
+                    return <path d="M36 46 Q40 42 44 46" fill="none" stroke="#333" strokeWidth="2.5" strokeLinecap="round" />;
+                } else if (state === 'timeup') {
+                     return <circle cx="40" cy="45" r="3" fill="#333" />;
+                } else {
+                    return (
+                        <g fill="none" stroke="#333" strokeWidth="2" strokeLinecap="round">
+                             <path d="M34 42 Q37 45 40 42" />
+                             <path d="M40 42 Q43 45 46 42" />
+                        </g>
+                    );
+                }
+            };
+
+            return (
+                <div className={`relative w-24 h-24 sm:w-32 sm:h-32 transition-all duration-300 ${animationClass}`}>
+                     <svg viewBox="0 0 80 80" className="w-full h-full drop-shadow-lg">
+                        <path d="M15 35 L22 10 L45 25 Z" fill="#fff" stroke="#cbd5e1" strokeWidth="2" strokeLinejoin="round" />
+                        <path d="M65 35 L58 10 L35 25 Z" fill="#fff" stroke="#cbd5e1" strokeWidth="2" strokeLinejoin="round" />
+                        <path d="M20 30 L24 18 L38 26 Z" fill="#fca5a5" /> 
+                        <path d="M60 30 L56 18 L42 26 Z" fill="#fca5a5" /> 
+                        
+                        <circle cx="40" cy="45" r="28" fill="#fff" stroke="#cbd5e1" strokeWidth="2" />
+                        
+                        <ellipse cx="40" cy="40" rx="3" ry="2" fill="#f472b6" />
+                        
+                        <g stroke="#94a3b8" strokeWidth="1.5" strokeLinecap="round">
+                            <path d="M15 42 L25 44" />
+                            <path d="M15 48 L25 48" />
+                            <path d="M65 42 L55 44" />
+                            <path d="M65 48 L55 48" />
+                        </g>
+
+                        {renderEyes()}
+                        {renderMouth()}
+                        
+                        <circle cx="22" cy="50" r="4" fill="#fca5a5" opacity="0.4" />
+                        <circle cx="58" cy="50" r="4" fill="#fca5a5" opacity="0.4" />
+                    </svg>
+                    
+                    {/* 吹き出し */}
+                    {state === null && mode !== 'timeAttack' && (
+                        <div className="absolute top-0 -left-2 bg-white px-2 py-1 rounded-full text-xs font-bold text-gray-500 shadow-md animate-bounce border border-gray-200">
+                            う〜ん...
+                        </div>
+                    )}
+                    {state === null && mode === 'timeAttack' && (
+                        <div className="absolute top-0 -left-2 bg-red-100 px-2 py-1 rounded-full text-xs font-bold text-red-500 shadow-md animate-pulse border border-red-200">
+                            いそげ！
+                        </div>
+                    )}
+                    {state === 'correct' && (
+                        <div className="absolute -top-2 -left-4 bg-yellow-100 px-3 py-1 rounded-full text-sm font-black text-orange-600 shadow-md animate-pulse border-2 border-orange-200 -rotate-12">
+                            やった！
+                        </div>
+                    )}
+                     {state === 'incorrect' && (
+                        <div className="absolute top-0 -left-2 bg-blue-100 px-2 py-1 rounded-full text-xs font-bold text-blue-600 shadow-md border border-blue-200">
+                            あれれ？
+                        </div>
+                    )}
+                    {state === 'timeup' && (
+                        <div className="absolute top-0 -left-6 bg-slate-800 px-3 py-1 rounded-full text-sm font-bold text-white shadow-md border border-slate-600">
+                            おつかれ！
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        // --- アイコン ---
+        const Ruler = ({ size = 24, className = "" }) => (<svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.41 2.41 0 0 1 0-3.4l2.6-2.6a2.41 2.41 0 0 1 3.4 0Z"/><path d="m14.5 12.5 2-2"/><path d="m11.5 9.5 2-2"/><path d="m8.5 6.5 2-2"/><path d="m17.5 15.5 2-2"/></svg>);
+        const Beaker = ({ size = 24, className = "" }) => (<svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M4.5 3h15"/><path d="M6 3v16a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V3"/><path d="M6 14h12"/></svg>);
+        const RefreshCw = ({ size = 24, className = "" }) => (<svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>);
+        const Check = ({ size = 24, className = "" }) => (<svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className={className}><polyline points="20 6 9 17 4 12"/></svg>);
+        const X = ({ size = 24, className = "" }) => (<svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className={className}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>);
+        const Timer = ({ size = 24, className = "" }) => (<svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>);
+        const Trophy = ({ size = 24, className = "" }) => (<svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>);
+
+        // --- メインアプリケーション ---
+        function App() {
+            const [mode, setMode] = useState('length'); // 'length' | 'volume'
+            const [allowOverOne, setAllowOverOne] = useState(false);
+            const [isTimeAttack, setIsTimeAttack] = useState(false);
+            
+            // ゲーム状態: 'idle', 'playing', 'finished'
+            const [gameState, setGameState] = useState('idle');
+            const [timeLeft, setTimeLeft] = useState(60);
+            const [score, setScore] = useState(0);
+            
+            // 問題のデータ
+            const [denominator, setDenominator] = useState(3);
+            const [numerator, setNumerator] = useState(2);
+            
+            // ユーザーの回答
+            const [userDenominator, setUserDenominator] = useState('');
+            const [userNumerator, setUserNumerator] = useState('');
+            
+            const [feedback, setFeedback] = useState(null); // 'correct' | 'incorrect' | null
+
+            // タイマー管理
+            useEffect(() => {
+                let timer;
+                if (isTimeAttack && gameState === 'playing' && timeLeft > 0) {
+                    timer = setInterval(() => {
+                        setTimeLeft((prev) => prev - 1);
+                    }, 1000);
+                } else if (timeLeft === 0 && gameState === 'playing') {
+                    finishGame();
+                }
+                return () => clearInterval(timer);
+            }, [isTimeAttack, gameState, timeLeft]);
+
+            // 問題生成
+            // forceRandom: trueなら強制的にランダム生成（タイムアタック開始時用）
+            const generateProblem = (forceRandom = false) => {
+                // タイムアタックモード中は常にランダム設定
+                const isRandom = forceRandom === true || (isTimeAttack && gameState === 'playing');
+
+                let targetMode = mode;
+                let targetAllowOverOne = allowOverOne;
+
+                if (isRandom) {
+                    // 長さ か かさ か をランダム決定
+                    targetMode = Math.random() < 0.5 ? 'length' : 'volume';
+                    setMode(targetMode); // UI更新のためステートセット
+
+                    // 1以上 か 未満 か をランダム決定
+                    targetAllowOverOne = Math.random() < 0.5;
+                    // allowOverOneステートは更新しなくてよい（計算のみに使用）
+                }
+
+                const newDenominator = Math.floor(Math.random() * 9) + 2;
+                
+                let newNumerator;
+                if (targetAllowOverOne) {
+                    // 1以上の場合
+                    const min = newDenominator + 1;
+                    const max = newDenominator * 2 - 1;
+                    newNumerator = Math.floor(Math.random() * (max - min + 1)) + min;
+                } else {
+                    // 1未満の場合
+                    newNumerator = Math.floor(Math.random() * (newDenominator - 1)) + 1;
+                }
+
+                setDenominator(newDenominator);
+                setNumerator(newNumerator);
+                
+                setUserDenominator('');
+                setUserNumerator('');
+                setFeedback(null);
+            };
+
+            // 設定変更時のリセット
+            useEffect(() => {
+                if (isTimeAttack) {
+                    // タイムアタック待機中はリセット不要
+                } else {
+                    // 通常モード：設定が変わったら即座に問題を更新
+                    // ここでのポイント：タイムアタックから戻ってきたときなども、
+                    // 現在の mode と allowOverOne の値を使って正しく再生成される。
+                    generateProblem();
+                }
+            }, [allowOverOne, mode, isTimeAttack]);
+
+            // タイムアタック開始
+            const startGame = () => {
+                setScore(0);
+                setTimeLeft(60);
+                setGameState('playing');
+                generateProblem(true); // 最初の1問目をランダムに生成
+                playSound('start');
+            };
+
+            // タイムアタック終了
+            const finishGame = () => {
+                setGameState('finished');
+                playSound('finish');
+            };
+
+            // もう一度遊ぶ（タイムアタック）
+            const resetGame = () => {
+                setGameState('idle');
+                setTimeLeft(60);
+                setScore(0);
+                setFeedback(null);
+            };
+
+            const checkAnswer = () => {
+                const uNum = parseInt(userNumerator);
+                const uDen = parseInt(userDenominator);
+
+                if (isNaN(uNum) || isNaN(uDen)) return;
+
+                if (uNum === numerator && uDen === denominator) {
+                    setFeedback('correct');
+                    playSound('correct');
+                    
+                    if (isTimeAttack && gameState === 'playing') {
+                        setScore(s => s + 1);
+                        // タイムアタック中は自動で次へ
+                        setTimeout(() => {
+                            generateProblem();
+                        }, 600); // 少し余韻を残す
+                    }
+                } else {
+                    setFeedback('incorrect');
+                    playSound('incorrect');
+                    
+                    // 間違えたら少し待って入力できるように戻す
+                    setTimeout(() => {
+                        setFeedback(null);
+                    }, 1000);
+                }
+            };
+
+            const getUnit = () => (mode === 'length' ? 'm' : 'L');
+
+            // 背景色の決定
+            let bgClass = 'bg-gradient-to-br from-indigo-50 via-blue-50 to-slate-100';
+            
+            if (isTimeAttack && gameState === 'playing' && timeLeft <= 10) {
+                // ピンチ！
+                bgClass = 'animate-pulse-red';
+            } else if (feedback === 'correct') {
+                bgClass = 'bg-gradient-to-br from-green-50 via-emerald-100 to-teal-50 animate-gradient';
+            }
+
+            // タイムアタック待機画面・終了画面
+            if (isTimeAttack && gameState === 'idle') {
+                return (
+                    <div className={`h-[100dvh] flex flex-col items-center justify-center p-4 bg-slate-50 transition-colors duration-1000`}>
+                        <div className="max-w-md w-full bg-white rounded-3xl shadow-xl p-8 text-center border-4 border-indigo-100">
+                            <h1 className="text-3xl font-black text-indigo-600 mb-6 flex justify-center items-center gap-2">
+                                <Timer size={32} /> タイムアタック
+                            </h1>
+                            <div className="mb-8">
+                                <div className="text-slate-600 mb-2 font-bold">60秒で何問とけるかな？</div>
+                                <div className="text-8xl font-black text-indigo-500 tracking-tighter">60<span className="text-2xl ml-2">秒</span></div>
+                                <div className="mt-4 text-sm text-indigo-400 font-bold bg-indigo-50 inline-block px-4 py-1 rounded-full">
+                                    長さ・かさ・1以上がランダムに出るよ！
+                                </div>
+                            </div>
+                            <button onClick={startGame} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-2xl font-black py-4 rounded-2xl shadow-lg transform transition hover:scale-105 active:scale-95">
+                                スタート！
+                            </button>
+                            <button onClick={() => setIsTimeAttack(false)} className="mt-4 text-slate-400 font-bold hover:text-slate-600 underline">
+                                通常モードにもどる
+                            </button>
+                        </div>
+                    </div>
+                );
+            }
+
+            if (isTimeAttack && gameState === 'finished') {
+                return (
+                    <div className={`h-[100dvh] flex flex-col items-center justify-center p-4 bg-slate-100 transition-colors duration-1000`}>
+                        <div className="max-w-md w-full bg-white rounded-3xl shadow-xl p-8 text-center border-4 border-yellow-100 relative overflow-hidden">
+                            <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-yellow-300 via-orange-300 to-yellow-300"></div>
+                            <h1 className="text-3xl font-black text-slate-700 mb-2">終了！</h1>
+                            <div className="flex justify-center mb-6">
+                                <Mascot state="timeup" mode="timeAttack" />
+                            </div>
+                            <div className="mb-8 bg-yellow-50 rounded-2xl p-4 border border-yellow-100">
+                                <div className="text-slate-500 font-bold mb-1">あなたの記録</div>
+                                <div className="flex justify-center items-baseline gap-2 text-indigo-600">
+                                    <span className="text-6xl font-black">{score}</span>
+                                    <span className="text-2xl font-bold">問正解</span>
+                                </div>
+                            </div>
+                            <button onClick={resetGame} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xl font-black py-3 rounded-2xl shadow-lg transform transition hover:scale-105 active:scale-95 flex justify-center items-center gap-2">
+                                <RefreshCw /> もう一度挑戦
+                            </button>
+                            <button onClick={() => { setIsTimeAttack(false); setGameState('idle'); }} className="mt-4 text-slate-400 font-bold hover:text-slate-600 underline">
+                                通常モードにもどる
+                            </button>
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className={`h-[100dvh] flex flex-col items-center py-2 px-2 sm:px-4 overflow-y-auto sm:overflow-hidden transition-colors duration-500 ${bgClass}`}>
+                    
+                    {/* 上部ヘッダー */}
+                    <div className="shrink-0 w-full max-w-4xl flex flex-col sm:flex-row justify-between items-center mb-2 px-1 sm:px-2 gap-2 sm:gap-0 mt-1">
+                        <h1 className="text-lg sm:text-xl font-black text-indigo-600 flex items-center gap-2 drop-shadow-sm tracking-tight">
+                            <span>分数クイズ</span>
+                            {isTimeAttack && <span className="bg-red-500 text-white text-xs px-2 py-0.5 rounded ml-1">TA</span>}
+                        </h1>
+                        
+                        {isTimeAttack ? (
+                            <div className="flex items-center gap-4">
+                                <div className="bg-white/80 px-4 py-1 rounded-full font-black text-indigo-600 shadow-sm border border-indigo-100 flex items-center gap-2">
+                                    <Trophy size={18} className="text-yellow-500" />
+                                    <span>{score}</span>
+                                </div>
+                                <div className={`px-4 py-1 rounded-full font-black shadow-sm border border-white/50 flex items-center gap-2 ${timeLeft <= 10 ? 'bg-red-500 text-white animate-pulse' : 'bg-white/80 text-slate-700'}`}>
+                                    <Timer size={18} />
+                                    <span>{timeLeft}</span>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="text-sm sm:text-base font-bold text-indigo-900 bg-white/70 backdrop-blur-sm px-4 py-1.5 rounded-full shadow-sm border border-white/50 whitespace-nowrap">
+                                色の部分は 何 <span className="text-lg mx-1">{getUnit()}</span> ？
+                            </div>
+                        )}
+                    </div>
+
+                    {/* 中央エリア */}
+                    <div className="flex-1 w-full max-w-4xl bg-white/80 backdrop-blur-md rounded-2xl sm:rounded-3xl shadow-xl shadow-indigo-100/50 p-2 sm:p-4 mb-2 flex flex-col items-center justify-center relative overflow-hidden min-h-0 border border-white/60">
+                        <div className="absolute -top-20 -left-20 w-64 h-64 bg-blue-400/10 rounded-full blur-3xl"></div>
+                        <div className="absolute -bottom-20 -right-20 w-64 h-64 bg-purple-400/10 rounded-full blur-3xl"></div>
+
+                        {/* 図形描画エリア */}
+                        <div className={`w-full flex-1 flex justify-center items-center gap-4 sm:gap-8 overflow-x-auto min-h-[120px] sm:min-h-[160px] pb-2 z-10 ${
+                        mode === 'length' ? 'pt-4 sm:pt-16' : 'pt-4 sm:pt-8' 
+                        }`}>
+                        {mode === 'length' ? (
+                            <LengthVisualization 
+                                numerator={numerator} 
+                                denominator={denominator} 
+                                unit={getUnit()}
+                            />
+                        ) : (
+                            <VolumeVisualization 
+                                numerator={numerator} 
+                                denominator={denominator} 
+                                unit={getUnit()}
+                            />
+                        )}
+                        </div>
+
+                        {/* 回答入力エリア */}
+                        <div className="w-full flex justify-center items-end gap-2 sm:gap-4 mt-2">
+                            
+                            {/* 左: 入力 */}
+                            <div className="shrink-0 z-10 flex flex-col items-center gap-2 sm:gap-3 flex-1 max-w-lg bg-slate-50/80 p-3 sm:p-5 rounded-xl border border-slate-100 shadow-inner">
+                                <div className="flex items-center gap-3 sm:gap-6">
+                                    <div className="text-base sm:text-xl font-black mr-1 sm:mr-2 text-slate-500">答え</div>
+                                    
+                                    <div className="flex flex-col items-center gap-1 sm:gap-2">
+                                        <input
+                                            type="number"
+                                            value={userNumerator}
+                                            onChange={(e) => setUserNumerator(e.target.value)}
+                                            placeholder="?"
+                                            className="w-14 h-10 sm:w-18 sm:h-14 text-center text-xl sm:text-2xl font-black border-2 border-slate-200 rounded-lg focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 focus:outline-none bg-white no-spinners shadow-sm text-indigo-600 transition-all placeholder-slate-300"
+                                        />
+                                        <div className="w-14 sm:w-20 h-1 sm:h-1.5 bg-slate-700 rounded-full opacity-80"></div>
+                                        <input
+                                            type="number"
+                                            value={userDenominator}
+                                            onChange={(e) => setUserDenominator(e.target.value)}
+                                            placeholder="?"
+                                            className="w-14 h-10 sm:w-18 sm:h-14 text-center text-xl sm:text-2xl font-black border-2 border-slate-200 rounded-lg focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 focus:outline-none bg-white no-spinners shadow-sm text-indigo-600 transition-all placeholder-slate-300"
+                                        />
+                                    </div>
+                                    
+                                    <div className="text-xl sm:text-3xl font-black self-center mt-[-4px] ml-1 text-slate-600">
+                                        {getUnit()}
+                                    </div>
+                                </div>
+
+                                <div className="h-10 sm:h-12 flex items-center mt-2">
+                                    {!feedback ? (
+                                        <button
+                                            onClick={checkAnswer}
+                                            disabled={!userNumerator || !userDenominator}
+                                            className={`px-6 sm:px-8 py-2 rounded-full font-bold text-sm sm:text-base shadow-lg shadow-indigo-200 transition-all transform ${
+                                            userNumerator && userDenominator
+                                                ? 'bg-gradient-to-r from-indigo-500 to-blue-500 text-white hover:scale-105 active:scale-95 hover:shadow-xl'
+                                                : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                                            }`}
+                                        >
+                                            答え合わせ
+                                        </button>
+                                    ) : (
+                                        <div className="flex items-center gap-2 sm:gap-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                                            <div className={`flex items-center gap-1 sm:gap-2 px-3 sm:px-5 py-1.5 rounded-full font-black text-sm sm:text-base shadow-lg animate-bounce-short whitespace-nowrap border-2 ${
+                                                feedback === 'correct' 
+                                                ? 'bg-white text-emerald-500 border-emerald-100' 
+                                                : 'bg-white text-rose-500 border-rose-100'
+                                            }`}>
+                                                {feedback === 'correct' ? (
+                                                    <>
+                                                        <Check size={20} className="inline sm:w-6 sm:h-6" />
+                                                        <span className="ml-1 text-base sm:text-lg">せいかい！</span>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <X size={20} className="inline sm:w-6 sm:h-6" />
+                                                        <span className="ml-1 text-base sm:text-lg">おしい！</span>
+                                                    </>
+                                                )}
+                                            </div>
+                                            {/* 通常モードのみ「次へ」ボタンを表示 (TAは自動遷移) */}
+                                            {feedback === 'correct' && !isTimeAttack && (
+                                                <button
+                                                    onClick={() => generateProblem()}
+                                                    className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 sm:px-5 py-2 rounded-full font-bold shadow-lg shadow-indigo-200 hover:shadow-xl transition-all text-xs sm:text-sm whitespace-nowrap hover:scale-105 active:scale-95"
+                                                >
+                                                    次へ
+                                                </button>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* 右: キャラクター */}
+                            <div className="shrink-0 z-20 mb-2">
+                                <Mascot state={feedback} mode={isTimeAttack ? 'timeAttack' : 'normal'} />
+                            </div>
+
+                        </div>
+                    </div>
+
+                    {/* 下部：操作パネル */}
+                    <div className="shrink-0 w-full max-w-4xl bg-white/60 backdrop-blur-md rounded-xl p-2 sm:p-3 flex flex-wrap gap-2 sm:gap-4 justify-between items-center border border-white/50 shadow-sm">
+                        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                            <div className="flex bg-slate-100/80 p-1 rounded-lg">
+                                <button
+                                    onClick={() => setMode('length')}
+                                    disabled={isTimeAttack && gameState === 'playing'}
+                                    className={`flex items-center gap-1 px-2 sm:px-3 py-1.5 rounded-md transition-all text-xs sm:text-sm font-bold ${
+                                        mode === 'length' 
+                                        ? 'bg-white text-indigo-600 shadow-sm scale-105 ring-1 ring-black/5' 
+                                        : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
+                                    }`}
+                                >
+                                    <Ruler size={14} className="sm:w-4 sm:h-4 inline" />
+                                    <span>長さ (m)</span>
+                                </button>
+                                <button
+                                    onClick={() => setMode('volume')}
+                                    disabled={isTimeAttack && gameState === 'playing'}
+                                    className={`flex items-center gap-1 px-2 sm:px-3 py-1.5 rounded-md transition-all text-xs sm:text-sm font-bold ${
+                                        mode === 'volume' 
+                                        ? 'bg-white text-indigo-600 shadow-sm scale-105 ring-1 ring-black/5' 
+                                        : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
+                                    }`}
+                                >
+                                    <Beaker size={14} className="sm:w-4 sm:h-4 inline" />
+                                    <span>かさ (L)</span>
+                                </button>
+                            </div>
+
+                            <label className="flex items-center gap-1.5 cursor-pointer select-none bg-indigo-50/50 px-2 sm:px-3 py-1.5 rounded-lg hover:bg-indigo-50 transition-colors border border-indigo-100 group">
+                                <div className="relative flex items-center">
+                                    <input
+                                        type="checkbox"
+                                        checked={allowOverOne}
+                                        onChange={(e) => setAllowOverOne(e.target.checked)}
+                                        disabled={isTimeAttack && gameState === 'playing'}
+                                        className="peer w-3.5 h-3.5 text-indigo-600 rounded focus:ring-indigo-500 border-indigo-300 cursor-pointer disabled:opacity-50"
+                                    />
+                                </div>
+                                <span className="text-xs sm:text-sm font-bold text-indigo-700 whitespace-nowrap group-hover:text-indigo-800 transition-colors">
+                                    必ず 1{getUnit()} 以上
+                                </span>
+                            </label>
+
+                            {/* タイムアタック切り替えスイッチ */}
+                            <label className="flex items-center gap-1.5 cursor-pointer select-none bg-rose-50 px-2 sm:px-3 py-1.5 rounded-lg hover:bg-rose-100 transition-colors border border-rose-100 group ml-2">
+                                <div className="relative flex items-center">
+                                    <input
+                                        type="checkbox"
+                                        checked={isTimeAttack}
+                                        onChange={(e) => {
+                                            setIsTimeAttack(e.target.checked);
+                                            setGameState('idle');
+                                            setFeedback(null);
+                                        }}
+                                        disabled={isTimeAttack && gameState === 'playing'}
+                                        className="peer w-3.5 h-3.5 text-rose-600 rounded focus:ring-rose-500 border-rose-300 cursor-pointer disabled:opacity-50"
+                                    />
+                                </div>
+                                <span className="text-xs sm:text-sm font-bold text-rose-700 whitespace-nowrap group-hover:text-rose-800 transition-colors">
+                                    <Timer size={14} className="inline mr-1 mb-0.5" />
+                                    タイムアタック
+                                </span>
+                            </label>
+                        </div>
+
+                        {!isTimeAttack && (
+                            <button
+                                onClick={() => generateProblem()}
+                                className="flex items-center gap-1 sm:gap-2 bg-white hover:bg-slate-50 text-slate-600 border border-slate-200 px-3 sm:px-4 py-1.5 rounded-lg font-bold shadow-sm hover:shadow active:scale-95 transition-all text-xs sm:text-sm ml-auto sm:ml-0"
+                            >
+                                <RefreshCw size={14} className="sm:w-4 sm:h-4 inline" />
+                                <span>パス</span>
+                            </button> 
+                        )}      
+                    </div>
+                </div>
+            );
+        }
+
+        // --- 長さ（テープ図）の表示 ---
+        function LengthVisualization({ numerator, denominator, unit }) {
+            const fullUnits = Math.ceil(numerator / denominator);
+            const renderBlocks = [];
+
+            for (let i = 0; i < fullUnits; i++) {
+                const remainingNumerator = numerator - (i * denominator);
+                const fillCount = Math.min(denominator, remainingNumerator);
+                
+                renderBlocks.push(
+                    <div key={i} className="relative flex flex-col items-center mx-1 sm:mx-2 group shrink-0">
+                        <div className="relative flex h-10 sm:h-14 border-2 border-slate-700 bg-white shadow-sm overflow-hidden w-[200px] sm:w-[280px] rounded-md transition-transform duration-500">
+                            {Array.from({ length: denominator }).map((_, idx) => (
+                                <div 
+                                    key={idx} 
+                                    className={`flex-1 ${idx !== denominator - 1 ? 'border-r-[3px] border-dashed border-slate-500' : ''} z-10`}
+                                ></div>
+                            ))}
+                            <div 
+                                className="absolute top-0 left-0 h-full bg-gradient-to-r from-pink-400 to-rose-400 opacity-90 transition-all duration-700 ease-out shadow-[0_0_15px_rgba(251,113,133,0.3)]"
+                                style={{ width: `${(fillCount / denominator) * 100}%` }}
+                            ></div>
+                        </div>
+                        <div className="w-full flex justify-between mt-1 sm:mt-2 text-sm sm:text-base font-black text-slate-500 px-1">
+                            <span>{i}</span>
+                            <span>{i + 1}{unit}</span>
+                        </div>
+                    </div>
+                );
+            }
+            return <div className="flex flex-wrap justify-center animate-in fade-in duration-500">{renderBlocks}</div>;
+        }
+
+        // --- かさ（ビーカー）の表示 ---
+        function VolumeVisualization({ numerator, denominator, unit }) {
+            const fullUnits = Math.ceil(numerator / denominator);
+            const renderBlocks = [];
+
+            for (let i = 0; i < fullUnits; i++) {
+                const remainingNumerator = numerator - (i * denominator);
+                const fillCount = Math.min(denominator, remainingNumerator);
+
+                renderBlocks.push(
+                    <div key={i} className="relative flex flex-col items-center mx-1 sm:mx-2 shrink-0">
+                        <div className="relative w-24 sm:w-32 h-18 sm:h-24 border-x-4 border-b-4 border-slate-700 rounded-b-2xl bg-white/40 backdrop-blur-sm overflow-hidden shadow-inner ring-1 ring-white/50">
+                            <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-white/20 to-transparent z-20 pointer-events-none"></div>
+                            <div className="absolute bottom-0 left-0 w-full h-full flex flex-col-reverse">
+                                {Array.from({ length: denominator }).map((_, idx) => (
+                                    <div 
+                                        key={idx} 
+                                        className={`flex-1 w-full ${idx !== denominator - 1 ? 'border-t-[3px] border-dashed border-slate-500/80' : ''} transition-all duration-700 ${
+                                            idx < fillCount ? 'bg-gradient-to-r from-blue-400 to-cyan-400 shadow-[inset_0_0_10px_rgba(0,0,0,0.1)]' : 'bg-transparent'
+                                        }`}
+                                    ></div>
+                                ))}
+                            </div>
+                        </div>
+                        <div className="mt-1 sm:mt-2 text-xs sm:text-sm font-black text-slate-500">
+                            1{unit} のます
+                        </div>
+                        {fullUnits > 1 && (
+                            <div className="text-[10px] sm:text-xs font-bold text-slate-400">
+                                ({i + 1} つめ)
+                            </div>
+                        )}
+                    </div>
+                );
+            }
+            return <div className="flex flex-wrap justify-center items-end animate-in slide-in-from-bottom-4 duration-500 fade-in">{renderBlocks}</div>;
+        }
+
+        // Reactアプリの起動
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
